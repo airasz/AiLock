@@ -1,0 +1,56 @@
+{}
+create_socket://122.123.75.00:88
+    accessing>>>
+//localhost://backup_cache/cia.gov/1999/xhtml.
+WakeUp(Planted_worm, 1) = true
+    [force]rebulding_code/structure{};
+<head>
+    <meta http-equiv="Content-Type" content=
+        "text/html; charset=utf-8" />
+    <link href="Locus.css" rel="stylesheet" type="text/css" />
+    <!-- LINKED ATTACHED STYLE SHEET-->
+    <title>Locus Test Complete</title>
+</head>
+
+SendKey: Call_history>>
+(temp_dir(session(last_loggin)))
+    Stealth_try= get_username{}//ID//typed
+    Stealth_try=get_password{}//ID//typed
+!DOCTYPE html PUBLIC "-//W3C//DTD
+    XHTML 1.0 Transitional//EN" 
+"localhost://www.cia.gov/TR/xhtml1/DTD
+    /xhtml1-transitional.dtb">
+<html xmlns=
+
+/*SEARCHING THE VARIABLES FOR ACCESS*/
+found_decripted{
+}
+    $username="irul";
+found_decripted{
+}	
+    $password="***********";
+$database_server=set_readwrite//"localhost";
+ 
+ 
+/*CONNECTING TO THE SERVER*/
+$database="locus";
+    mysql_connect($database_server,
+    $username,$password) or die("cannot connect");
+ 
+/*CONNECTING TO THE DATABASE*/
+    mysql_select_db($database) or
+    die( "Unable to select database");
+ 
+ 
+
+if( isset( $_POST['surname'])) {
+    $Surname = $_POST['surname'];
+} else {
+    $Surname = "";
+}
+ 
+if( isset( $_POST['prison'])) {
+    $Prison = $_POST['prison'];
+} else {
+    $Prison = "";
+}

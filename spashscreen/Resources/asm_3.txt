@@ -1,0 +1,345 @@
+1.	;reads from stdin 256 bytes into a buffer then parses it
+2.	;fork and exec ;TODO then take care of children
+3.	 
+4.	 format ELF64 executable 3
+5.	entry main
+6.	 
+7.	align 16
+8.	segment readable writeable
+9.	kaksetozove db "ish: "
+10.	 
+11.	align 16
+12.	line: rb 256
+13.	master_pid: rq 1
+14.	current_cwd: rb 128
+15.	tokens: rb 128
+16.	argv: rb 128
+17.	envp: rb 8
+18.	filename: rb 128
+19.	fileproperties: rb 128
+20.	tmp: rb 128
+21.	align 16
+22.	sigaction:
+23.	dq 0
+24.	dq 0
+25.	dq 0
+26.	dq 0
+27.	align 16
+28.	termios:
+29.	rb 3*8
+30.	align 16
+31.	termios_old:
+32.	rb 3*8
+33.	 
+34.	align 16
+35.	segment readable executable
+36.	 
+37.	main:
+38.	mov [envp], rdx ;environment without argv, hax obviously
+39.	add rsp, 24
+40.	mov rax, rsp
+41.	;mov rax, [rax]
+42.	mov [envp], rax
+43.	;jmp debug
+44.	 
+45.	mov rax, 39 ;getpid
+46.	syscall
+47.	mov [master_pid], rax
+48.	 
+49.	mov rsi, 128
+50.	mov rdi, current_cwd
+51.	mov rax, 79 ;getcwd
+52.	syscall
+53.	 
+54.	;setup terminal IO
+55.	mov rdx, termios
+56.	mov rsi, 0x5401
+57.	mov rdi, 0
+58.	mov rax, 16
+59.	syscall
+60.	xor rcx, rcx
+61.	backup_termios:
+62.	mov rax, [termios+rcx]
+63.	mov [termios_old+rcx], rax
+64.	add rcx,8
+65.	cmp rcx, 3*8
+66.	jnz backup_termios
+67.	;set new terminal IO
+68.	mov eax, 0000012o
+69.	not eax
+70.	and dword [termios+12], eax ;-echo -icanon
+71.	mov rdx, termios
+72.	mov rsi, 0x5402
+73.	mov rdi, 0
+74.	mov rax, 16
+75.	syscall
+76.	 
+77.	;setup SIGINT handler
+78.	mov rax, sigact
+79.	mov dword [sigaction], sigact
+80.	mov rax, sigrest
+81.	or rax, 0x04000000
+82.	mov [sigaction+8], rax
+83.	mov r10, 8
+84.	mov rdx, 0
+85.	mov rsi, sigaction
+86.	mov rdi, 2
+87.	mov rax, 13 ;sigaction
+88.	syscall
+89.	 
+90.	;anounce ourselfs
+91.	mov rdx, 5    ; message string length
+92.	mov rsi, kaksetozove    ; message address
+93.	mov rdi, 1        ; stdout
+94.	mov rax, 1        ; sys_write
+95.	syscall
+96.	 
+97.	;ioctl TCSETSW and pointer to termios struct
+98.	ish_loop:
+99.	mov rbp, 0
+100.	mov rax, 0
+101.	getline:
+102.	add rbp, rax
+103.	no_char:
+104.	mov rsi, rbp
+105.	mov rdx, 1    ; message string length
+106.	add rsi, line    ; message address
+107.	mov rdi, 0        ; stdin
+108.	mov rax, 0        ; sys_read
+109.	syscall
+110.	;Its a tarp!
+111.	cmp byte [line+rbp], 4
+112.	jz exit
+113.	cmp byte [line+rbp], 27 ;ESC
+114.	jnz esc_char
+115.	mov rdx, 2
+116.	mov rsi, tmp
+117.	mov rdi, 0
+118.	mov rax, 0
+119.	syscall
+120.	;cmp byte [line+rbp], 91 ;[
+121.	;jz no_char
+122.	;cmp byte [line+rbp], 65 ;up
+123.	;jz no_char
+124.	esc_char:
+125.	cmp byte [line+rbp], 8 ;backspace
+126.	jnz delete_char
+127.	cmp rbp, 0
+128.	jz no_char
+129.	dec rbp
+130.	mov dword [line+rbp], 0x4B5B1B08 ;backspace+some esc sequence to delete
+131.	mov rdx, 4
+132.	mov rsi, rbp
+133.	add rsi, line
+134.	mov rdi, 1
+135.	mov rax, 1
+136.	syscall
+137.	jmp no_char
+138.	delete_char:
+139.	;asdasdasdasdasd
+140.	mov rdx, 1
+141.	mov rsi, rbp
+142.	add rsi, line
+143.	mov rdi, 1
+144.	mov rax, 1
+145.	syscall
+146.	cmp byte [line+rbp], 10
+147.	jnz getline
+148.	cmp rbp, 0
+149.	jz no_char
+150.	mov [line+rbp], byte 0 ;for hax (newline haxed out)
+151.	;autocomplete uses getdents
+152.	;ctrl+c uses SIGINT
+153.	 
+154.	;break by tokens
+155.	tokenize:
+156.	mov rdx, line
+157.	mov rax, tokens
+158.	mov [argv], qword rax
+159.	mov rcx, 0
+160.	dec rdx
+161.	toke_loop:
+162.	inc rdx
+163.	cmp [rdx], byte " "
+164.	jz toke_loop
+165.	cmp [rdx], byte 0
+166.	jz toke_end
+167.	store_token:
+168.	mov [argv+rcx], rax
+169.	add rcx, 8
+170.	copy_token:
+171.	movzx r9, byte [rdx]
+172.	mov [rax], qword r9
+173.	inc rdx
+174.	inc rax
+175.	cmp [rdx], byte 92 ; its "\"
+176.	jz toke_esc_char
+177.	cmp [rdx], byte " "
+178.	jz toke_add_null
+179.	cmp [rdx], byte 0
+180.	jz toke_end
+181.	jmp copy_token
+182.	toke_esc_char:
+183.	add rdx, 1
+184.	jmp copy_token
+185.	toke_add_null:
+186.	mov [rax], byte 0
+187.	inc rax
+188.	jmp toke_loop
+189.	toke_end:
+190.	mov [argv+rcx], dword 0
+191.	 
+192.	;check if builtin
+193.	mov rax, [argv]
+194.	cmp [rax], word "cd"
+195.	jnz not_cd
+196.	jmp chdir ;hax, later path concatenateing
+197.	xor rdx, rdx
+198.	mov rax, [argv+8]
+199.	get_chdir:
+200.	mov cl, [rax+rdx]
+201.	mov [current_cwd+rdx], cl
+202.	cmp cl, 0
+203.	jz chdir
+204.	inc rdx
+205.	jmp get_chdir
+206.	chdir:
+207.	mov rdi, [argv+8]
+208.	mov rax, 80 ;chdir
+209.	syscall
+210.	cmp rax, 0
+211.	;jz ish_loop
+212.	jmp print ;add error checking
+213.	not_cd:
+214.	 
+215.	;call fork
+216.	mov rax, 57 ;fork
+217.	syscall
+218.	;check if child, if not save child pid !
+219.	cmp rax, 0
+220.	jnz wait_child
+221.	;remember pid ?
+222.	 
+223.	prepare_file_name:
+224.	mov rax, [envp]
+225.	sub rax, 8
+226.	filename_find_PATH:
+227.	add rax, 8
+228.	cmp [rax], dword 0
+229.	jz filename_path ;TODO should be PATH NOT FOUND
+230.	mov rcx, [rax]
+231.	cmp [rcx], dword "PATH"
+232.	jnz filename_find_PATH
+233.	mov rdi, [rax+8] ;TODO check if 0
+234.	filename_path:
+235.	add rcx, 4
+236.	find_path:
+237.	push rdi
+238.	mov rax, filename
+239.	xor rsi, rsi
+240.	fn_path_loop:
+241.	add rcx, 1
+242.	mov dl, [rcx]
+243.	mov [rax+rsi], dl
+244.	inc rsi
+245.	cmp rcx, rdi
+246.	jne last_char_in_path
+247.	dec rax
+248.	jmp last_path
+249.	last_char_in_path:
+250.	jg not_found
+251.	cmp dl, ":"
+252.	jnz fn_path_loop
+253.	last_path:
+254.	push rcx
+255.	add rax, rsi
+256.	mov [rax-1], byte "/"
+257.	;path inserting should be different maybe
+258.	mov rsi, -1
+259.	cat_name_to_path:
+260.	inc rsi
+261.	mov dl, [line+rsi]
+262.	cmp dl, 0
+263.	jz cat_name_end
+264.	cmp dl, " "
+265.	jz cat_name_end
+266.	mov [rax+rsi], dl
+267.	jmp cat_name_to_path
+268.	cat_name_end:
+269.	mov [rax+rsi], byte 0
+270.	;check if exists, can check lots of things
+271.	mov rsi, fileproperties
+272.	mov rdi, filename
+273.	mov rax, 4 ;stat
+274.	syscall
+275.	pop rcx
+276.	pop rdi
+277.	cmp rax, -2 ;ENOENT
+278.	jz find_path
+279.	 
+280.	;set enviroment
+281.	;set pipes
+282.	execve_sys:
+283.	mov rdx, [envp]
+284.	mov rsi, argv
+285.	mov rdi, filename
+286.	mov rax, 59 ;execve
+287.	syscall
+288.	 
+289.	not_found:
+290.	;if anything exit
+291.	mov rdi, -99
+292.	mov rax, 60
+293.	syscall
+294.	 
+295.	;move to process controll :)
+296.	wait_child:
+297.	mov rcx, 0
+298.	mov rdx, 0
+299.	mov rsi, 0
+300.	mov rdi, -1
+301.	mov rax, 61
+302.	syscall
+303.	 
+304.	jmp print
+305.	debug:
+306.	mov rdx, 100    ; message string length
+307.	mov rsi, rax  ; message address
+308.	mov rdi, 1        ; stdout
+309.	mov rax, 1        ; sys_write
+310.	syscall
+311.	;ret
+312.	 
+313.	print:
+314.	mov rdx, 5    ; message string length
+315.	mov rsi, kaksetozove    ; message address
+316.	mov rdi, 1        ; stdout
+317.	mov rax, 1        ; sys_write
+318.	syscall
+319.	 
+320.	jmp ish_loop
+321.	 
+322.	align 16
+323.	sigrest:
+324.	mov rax, 15
+325.	syscall
+326.	align 16
+327.	sigact:
+328.	jmp ish_loop
+329.	 
+330.	exit:
+331.	;restore terminal IO
+332.	mov rdx, termios_old
+333.	mov rsi, 0x5402
+334.	mov rdi, 0
+335.	mov rax, 16
+336.	syscall
+337.	;print newline
+338.	mov byte [line], 10
+339.	mov rdx, 1
+340.	mov rsi, line
+341.	mov rdi, 1
+342.	mov rax, 1
+343.	syscall
+344.	mov rax, 60
+345.	syscall
